@@ -1,0 +1,6 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {fairness,initial,verify,hash}=require('../api/index.js')._test;
+test('Jain và Gini khi chưa có lượt nhận',()=>{const db=initial();db.users=[{id:'a',role:'student',eligible:true,active:true}];const f=fairness(db);assert.equal(f.jain,null);assert.equal(f.gini,null);assert.equal(f.coverage,0)});
+test('Phân phối bằng nhau đạt Jain=1 và Gini=0',()=>{const db=initial();db.users=[{id:'a',role:'student',eligible:true,active:true},{id:'b',role:'student',eligible:true,active:true}];db.packages=[{claimedBy:'a'},{claimedBy:'b'}];const f=fairness(db);assert.equal(f.jain,1);assert.equal(f.gini,0);assert.equal(f.coverage,100)});
+test('Phân phối lệch có Jain nhỏ hơn 1',()=>{const db=initial();db.users=[{id:'a',role:'student',eligible:true,active:true},{id:'b',role:'student',eligible:true,active:true}];db.packages=[{claimedBy:'a'},{claimedBy:'a'}];assert.ok(fairness(db).jain<1);assert.ok(fairness(db).gini>0)});
+test('Băm mật khẩu không lưu mật khẩu gốc',async()=>{const h=await hash('matkhau-dai-bao-mat');assert.ok(!h.includes('matkhau-dai'));assert.equal(verify('matkhau-dai-bao-mat',h),true);assert.equal(verify('sai',h),false)});
