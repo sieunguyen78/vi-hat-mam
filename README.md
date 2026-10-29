@@ -50,3 +50,20 @@ Phiên bản này sử dụng Redis key **`seedwallet:nguyentrai:v6:state`** nê
 - Phụ huynh/nhà trường cần thông báo và đồng thuận thích hợp, chỉ định giáo viên phụ trách, quy trình xử lý báo cáo nhạy cảm và bảo mật dữ liệu trẻ em. Không sử dụng chat để xử lý nguy hiểm khẩn cấp.
 - PIN chỉ có bốn chữ số, cần thêm cơ chế khóa theo tài khoản, kiểm thử bảo mật ứng dụng, phân quyền kỹ thuật, xác minh nguồn hỗ trợ trước khi giao nhận, giám sát và sao lưu.
 - Dữ liệu khảo sát mô phỏng, không được coi là bằng chứng thực nghiệm KHKT. Không đưa dữ liệu học sinh thật vào cho đến khi có phê duyệt và đánh giá bảo mật.
+
+
+## Bản 7.0 – Chat mã hóa đầu cuối (thử nghiệm bảo mật)
+- Thêm `public/e2ee.js` dùng Web Crypto; không tải thư viện mã hóa bên thứ ba.
+- Chat chỉ lưu bản mã AES-GCM, metadata; giao diện giải mã trên thiết bị. Khóa ECDH không xuất được, lưu IndexedDB ở từng trình duyệt.
+- Người nhận cần vào mục Chat một lần để đăng ký khóa. **Chỉ hỗ trợ một thiết bị/trình duyệt cho mỗi tài khoản**; không có phục hồi khóa.
+- Tin nhắn có thời hạn 30 ngày, cho phép xóa riêng từng tin và báo cáo sự cố.
+- Đọc file `CHINH-SACH-CHAT-AN-TOAN.md` trước khi dùng.
+- **Chưa đủ để triển khai thực tế cho trẻ em:** khóa công khai chưa xác minh độc lập, cần audit hệ thống và hỗ trợ khôi phục khóa, xử lý sự cố, bảo đảm nghĩa vụ pháp lý.
+- Dùng cùng namespace Redis bản 6.0 để giữ tài khoản, nhưng tin nhắn **plaintext từ bản 6.0 không được hiển thị nữa**. Nếu từng chat thật bằng bản 6.0, phải xóa dữ liệu plaintext cũ bằng quy trình quản trị bảo mật trước triển khai.
+
+## Bản 7.1 – Chẩn đoán lỗi Tin nhắn
+- Thêm `/api/index?action=capabilities` xác nhận API chat đã triển khai và phiên bản máy chủ.
+- `/api/index?action=health` trả thêm `version: 7.1.0` và danh sách tính năng chat.
+- Giao diện kiểm tra API trước khi tạo khóa và thông báo rõ khi backend chưa tương thích.
+- Tắt cache dài hạn của các tài nguyên tĩnh trên Vercel để hạn chế giao diện cũ.
+- Chi tiết: `HUONG-DAN-SUA-LOI-CHAT.md`.

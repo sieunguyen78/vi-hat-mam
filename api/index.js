@@ -4,8 +4,12 @@ const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
 const KEY='seedwallet:nguyentrai:v6:state'; // cô lập dữ liệu trường Nguyễn Trãi
 const CATEGORIES=[{id:'breakfast',name:'Bữa sáng căn tin',value:25000,quota:100,active:true},{id:'stationery',name:'Dụng cụ học tập',value:45000,quota:70,active:true},{id:'bus',name:'Vé xe buýt',value:20000,quota:50,active:true},{id:'books',name:'Sách tham khảo',value:60000,quota:40,active:true}];
 const initial=()=>({version:1,users:[],categories:CATEGORIES,packages:[],surveys:[],audit:[],messages:[]});
+const CHAT_TTL_MS=30*86400000;
+const cleanChat=db=>{db.messages=(db.messages||[]).filter(m=>m.ciphertext&&Date.now()-Date.parse(m.at)<CHAT_TTL_MS);};
 const rand=()=>crypto.randomBytes(18).toString('base64url');
 const SCHOOL='Trường THCS Nguyễn Trãi, TP. Đà Nẵng';
+const APP_VERSION='7.1.0';
+const CHAT_ACTIONS=['chat-list','chat-thread','chat-key','chat-send','chat-delete','chat-reports','chat-report-resolve','chat-report','chat-read','chat-purge-legacy'];
 const encrypt=(txt)=>{const iv=crypto.randomBytes(12),key=crypto.createHash('sha256').update(process.env.SESSION_SECRET).digest(),c=crypto.createCipheriv('aes-256-gcm',key,iv);const data=Buffer.concat([c.update(txt,'utf8'),c.final()]);return [iv.toString('hex'),c.getAuthTag().toString('hex'),data.toString('hex')].join('.')};
 const decrypt=(txt)=>{try{const [a,b,d]=txt.split('.');const key=crypto.createHash('sha256').update(process.env.SESSION_SECRET).digest(),c=crypto.createDecipheriv('aes-256-gcm',key,Buffer.from(a,'hex'));c.setAuthTag(Buffer.from(b,'hex'));return Buffer.concat([c.update(Buffer.from(d,'hex')),c.final()]).toString('utf8')}catch{return null}};
 const digest=(secret)=>crypto.createHmac('sha256',process.env.SESSION_SECRET||'').update(secret).digest('hex');
@@ -27,7 +31,8 @@ const publicPack=p=>({id:p.id,categoryId:p.categoryId,message:p.message,status:p
 const fairness=(db,cat)=>{const eligible=db.users.filter(u=>u.role==='student'&&u.eligible&&u.active!==false);const counts=eligible.map(u=>db.packages.filter(p=>p.claimedBy===u.id&&(!cat||p.categoryId===cat)).length);const n=counts.length,s=counts.reduce((a,b)=>a+b,0),ss=counts.reduce((a,b)=>a+b*b,0);let dist=0;for(const a of counts)for(const b of counts)dist+=Math.abs(a-b);return {eligible:n,covered:counts.filter(x=>x>0).length,coverage:n?Math.round(10000*counts.filter(x=>x>0).length/n)/100:0,jain:n&&ss?Math.round(10000*s*s/(n*ss))/10000:null,gini:n&&s?Math.round(10000*dist/(2*n*s))/10000:null,distribution:counts};};
 const audit=(db,event,u,ref)=>{db.audit.unshift({event,actor:u?.id||'system',ref:ref||'',at:new Date().toISOString()});db.audit=db.audit.slice(0,400)};
 async function limit(req,key,max=8){const ip=String(req.headers['x-forwarded-for']||req.socket?.remoteAddress||'unknown').split(',')[0].trim();const k='vhm:rate:'+digest(ip+':'+key+':'+Math.floor(Date.now()/60000));const n=Number(await redis('INCR',k));if(n===1)await redis('EXPIRE',k,90);if(n>max)throw Object.assign(Error('Thao tác quá nhiều lần. Hãy thử lại sau.'),{code:429})}
-async function route(req,res){res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');if(!process.env.SESSION_SECRET||process.env.SESSION_SECRET.length<32)return out(res,503,{error:'Cần khai báo SESSION_SECRET tối thiểu 32 ký tự.'});const op=new URL(req.url,'https://local').searchParams.get('action')||'';if(req.method==='GET'&&op==='health'){await redis('PING');return out(res,200,{ok:true,storage:'connected',school:SCHOOL})}if(!['GET','POST'].includes(req.method))return out(res,405,{error:'Phương thức không hỗ trợ.'});if(req.method==='POST'&&JSON.stringify(req.body||{}).length>10000)return out(res,413,{error:'Dữ liệu quá lớn.'});const body=req.body||{};if(req.method==='POST'&&req.headers.origin){const target=new URL(req.url,'https://local');if(new URL(req.headers.origin).host!==String(req.headers.host||target.host))throw Object.assign(Error('Nguồn yêu cầu không hợp lệ.'),{code:403});}
+async function route(req,res){res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');if(!process.env.SESSION_SECRET||process.env.SESSION_SECRET.length<32)return out(res,503,{error:'Cần khai báo SESSION_SECRET tối thiểu 32 ký tự.'});const op=new URL(req.url,'https://local').searchParams.get('action')||'';if(req.method==='GET'&&op==='health'){await redis('PING');return out(res,200,{ok:true,storage:'connected',school:SCHOOL,version:APP_VERSION,features:{chatE2EE:true,chatActions:CHAT_ACTIONS}})}if(!['GET','POST'].includes(req.method))return out(res,405,{error:'Phương thức không hỗ trợ.'});if(req.method==='POST'&&JSON.stringify(req.body||{}).length>10000)return out(res,413,{error:'Dữ liệu quá lớn.'});const body=req.body||{};if(req.method==='POST'&&req.headers.origin){const target=new URL(req.url,'https://local');if(new URL(req.headers.origin).host!==String(req.headers.host||target.host))throw Object.assign(Error('Nguồn yêu cầu không hợp lệ.'),{code:403});}
+if(op==='capabilities'&&req.method==='GET')return out(res,200,{ok:true,version:APP_VERSION,chatE2EE:true,chatActions:CHAT_ACTIONS});
 if(op==='qr-image'){ensure(auth(req,(await read()).db),['student']);const {db:qrdb}=await read();const owner=auth(req,qrdb);const tok=norm(req.body?.token);if(!/^[a-zA-Z0-9_-]{32}$/.test(tok))throw Object.assign(Error('Mã QR không hợp lệ.'),{code:400});const match=qrdb.packages.find(p=>p.claimedBy===owner.id&&p.status==='claimed'&&p.tokenHash===digest(tok)&&Date.now()<p.expiresAt);if(!match)throw Object.assign(Error('Mã không thuộc ví của bạn hoặc đã hết hiệu lực.'),{code:403});const qr=new QRCode(-1,QRErrorCorrectLevel.M);qr.addData(tok);qr.make();const size=qr.getModuleCount(),cells=[];for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(qr.isDark(y,x))cells.push(`<rect x="${x+4}" y="${y+4}" width="1" height="1"/>`);const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size+8} ${size+8}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><g fill="#112b26">${cells.join('')}</g></svg>`;return out(res,200,{svg});}
 if(op==='login'){await limit(req,'login',10);const id=norm(body.studentId).toLowerCase(),pass=String(body.password||'');let u;const adminName=norm(process.env.ADMIN_USERNAME||'');if(id===adminName.toLowerCase()&&adminName&&process.env.ADMIN_PASSWORD&&pass.length>=12&&crypto.timingSafeEqual(crypto.createHash('sha256').update(pass).digest(),crypto.createHash('sha256').update(process.env.ADMIN_PASSWORD).digest())){u=await change(db=>{let x=db.users.find(v=>v.role==='admin'&&v.studentId===adminName);if(!x){x={id:rand(),role:'admin',studentId:adminName,name:'Giáo viên quản lý',active:true,eligible:false,sessionVersion:0,createdAt:new Date().toISOString()};db.users.push(x)}return x})}else{const {db}=await read();u=db.users.find(x=>x.studentId?.toLowerCase()===id);if(!u||u.role!=='student'||!verify(pass,u.passwordHash)||u.active===false)throw Object.assign(Error('Thông tin đăng nhập không đúng hoặc tài khoản bị khóa.'),{code:401})}setSession(res,u);return out(res,200,{user:safeUser(u)})}
 if(op==='register'){await limit(req,'register',5);const studentId=norm(body.studentId).toUpperCase(),name=norm(body.name),klass=norm(body.klass),password=String(body.password||''),pin=String(body.pin||'');if(!/^[A-Z0-9_-]{4,24}$/.test(studentId)||name.length<2||name.length>70||klass.length<2||klass.length>20||password.length<10||!/^[0-9]{4}$/.test(pin))return out(res,400,{error:'Kiểm tra mã học sinh, họ tên, lớp, mật khẩu (tối thiểu 10 ký tự) và PIN 4 chữ số.'});const h=await hash(password),ph=await hash(pin);const u=await change(db=>{if(db.users.some(x=>x.studentId===studentId))throw Object.assign(Error('Mã học sinh đã tồn tại.'),{code:409});const x={id:rand(),studentId,name,klass,passwordHash:h,pinHash:ph,role:'student',eligible:false,active:true,sessionVersion:0,createdAt:new Date().toISOString()};db.users.push(x);audit(db,'register',x,'');return x});setSession(res,u);return out(res,200,{user:safeUser(u)})}
@@ -53,29 +58,60 @@ if(op==='profile'&&req.method==='POST'){
 }
 // Tin nhắn riêng học sinh ↔ giáo viên. Không hỗ trợ học sinh nhắn cho học sinh.
 if(op==='chat-list'&&req.method==='GET'){
- const messages=Array.isArray(db.messages)?db.messages:[];
+ const messages=(db.messages||[]).filter(m=>m.ciphertext&&Date.now()-Date.parse(m.at)<CHAT_TTL_MS);
  const students=db.users.filter(x=>x.role==='student'&&x.active!==false);
  const teachers=db.users.filter(x=>x.role==='admin'&&x.active!==false);
  const peers=u.role==='admin'?students:teachers;
- const list=peers.map(peer=>{const thread=messages.filter(m=>(m.from===u.id&&m.to===peer.id)||(m.from===peer.id&&m.to===u.id));const last=thread.at(-1);return {id:peer.id,name:peer.name,klass:u.role==='admin'?peer.klass:'',studentId:u.role==='admin'?peer.studentId:'',lastAt:last?.at||null,preview:last?.text?.slice(0,70)||'',unread:thread.filter(m=>m.to===u.id&&!m.readAt).length}}).sort((a,b)=>(b.lastAt||'').localeCompare(a.lastAt||''));
+ const list=peers.map(peer=>{const thread=messages.filter(m=>(m.from===u.id&&m.to===peer.id)||(m.from===peer.id&&m.to===u.id));const last=thread.at(-1);return {id:peer.id,name:peer.name,klass:u.role==='admin'?peer.klass:'',studentId:u.role==='admin'?peer.studentId:'',lastAt:last?.at||null,preview:last?'🔒 Tin nhắn đã mã hóa':'',unread:thread.filter(m=>m.to===u.id&&!m.readAt).length}}).sort((a,b)=>(b.lastAt||'').localeCompare(a.lastAt||''));
  return out(res,200,{conversations:list});
 }
 if(op==='chat-thread'&&req.method==='GET'){
  const peerId=norm(new URL(req.url,'https://local').searchParams.get('peer'));
  const peer=db.users.find(x=>x.id===peerId&&x.active!==false);
  if(!peer||peer.id===u.id||peer.role===u.role)throw Object.assign(Error('Không có quyền xem cuộc trò chuyện này.'),{code:403});
- const thread=(db.messages||[]).filter(m=>(m.from===u.id&&m.to===peerId)||(m.from===peerId&&m.to===u.id));
- return out(res,200,{peer:{id:peer.id,name:peer.name},messages:thread.slice(-100).map(m=>({id:m.id,fromMe:m.from===u.id,text:m.text,at:m.at,read:!!m.readAt}))});
+ const thread=(db.messages||[]).filter(m=>m.ciphertext&&Date.now()-Date.parse(m.at)<CHAT_TTL_MS&&((m.from===u.id&&m.to===peerId)||(m.from===peerId&&m.to===u.id)));
+ return out(res,200,{peer:{id:peer.id,name:peer.name},messages:thread.slice(-100).map(m=>({id:m.id,fromMe:m.from===u.id,ciphertext:m.ciphertext,iv:m.iv,salt:m.salt,at:m.at,read:!!m.readAt}))});
+}
+// Khóa ECDH công khai chỉ đăng ký một lần để tránh thay khóa im lặng.
+if(op==='chat-key'&&req.method==='GET'){
+ const peerId=norm(new URL(req.url,'https://local').searchParams.get('peer')||u.id);
+ const peer=db.users.find(x=>x.id===peerId&&x.active!==false);
+ if(!peer||(peer.id!==u.id&&peer.role===u.role))throw Object.assign(Error('Không có quyền xem khóa.'),{code:403});
+ return out(res,200,{key:peer.chatPublicKey||null,peerId:peer.id});
+}
+if(op==='chat-key'&&req.method==='POST'){
+ const jwk=body.key;
+ if(!jwk||jwk.kty!=='EC'||jwk.crv!=='P-256'||typeof jwk.x!=='string'||typeof jwk.y!=='string'||jwk.x.length!==43||jwk.y.length!==43||jwk.d)throw Object.assign(Error('Khóa công khai không hợp lệ.'),{code:400});
+ await change(db=>{const self=db.users.find(x=>x.id===u.id);if(self.chatPublicKey&&JSON.stringify(self.chatPublicKey)!==JSON.stringify({kty:'EC',crv:'P-256',x:jwk.x,y:jwk.y}))throw Object.assign(Error('Tài khoản đã có khóa chat. Không thể thay khóa tự động; hãy gặp giáo viên phụ trách.'),{code:409});self.chatPublicKey={kty:'EC',crv:'P-256',x:jwk.x,y:jwk.y};audit(db,'chat-key-created',self,'');});
+ return out(res,200,{ok:true});
 }
 if(op==='chat-send'&&req.method==='POST'){
- await limit(req,'chat:'+u.id,12);const peerId=norm(body.peerId),text=norm(body.text);
- if(!text||text.length>800)throw Object.assign(Error('Tin nhắn phải có từ 1 đến 800 ký tự.'),{code:400});
- const result=await change(db=>{const self=db.users.find(x=>x.id===u.id&&x.active!==false),peer=db.users.find(x=>x.id===peerId&&x.active!==false);if(!self||!peer||self.id===peer.id||self.role===peer.role)throw Object.assign(Error('Chỉ học sinh và giáo viên mới có thể nhắn tin riêng với nhau.'),{code:403});
- db.messages=db.messages||[];const msg={id:rand(),from:self.id,to:peer.id,text,at:new Date().toISOString()};db.messages.push(msg);
- // Giữ giới hạn dung lượng Redis demo; không ghi nội dung tin nhắn vào audit.
- if(db.messages.length>1200)db.messages=db.messages.slice(-1200);
- audit(db,'chat',self,'');return {id:msg.id,at:msg.at}});
+ await limit(req,'chat:'+u.id,12);const peerId=norm(body.peerId),{ciphertext,iv,salt}=body;
+ if(typeof ciphertext!=='string'||ciphertext.length<20||ciphertext.length>2500||!(/^[A-Za-z0-9_-]+$/.test(ciphertext))||typeof iv!=='string'||!/^[A-Za-z0-9_-]{16}$/.test(iv)||typeof salt!=='string'||!/^[A-Za-z0-9_-]{22}$/.test(salt))throw Object.assign(Error('Bản mã tin nhắn không hợp lệ.'),{code:400});
+ const result=await change(db=>{const self=db.users.find(x=>x.id===u.id&&x.active!==false),peer=db.users.find(x=>x.id===peerId&&x.active!==false);if(!self||!peer||self.id===peer.id||self.role===peer.role||!self.chatPublicKey||!peer.chatPublicKey)throw Object.assign(Error('Cuộc trò chuyện chưa được thiết lập khóa hoặc không có quyền.'),{code:403});
+ cleanChat(db);const msg={id:rand(),from:self.id,to:peer.id,ciphertext,iv,salt,at:new Date().toISOString()};db.messages.push(msg);audit(db,'chat-send',self,msg.id);return {id:msg.id,at:msg.at}});
  return out(res,200,{ok:true,message:result});
+}
+if(op==='chat-delete'&&req.method==='POST'){
+ const id=norm(body.id);if(!id)throw Object.assign(Error('Thiếu mã tin nhắn.'),{code:400});
+ await change(db=>{cleanChat(db);const m=db.messages.find(x=>x.id===id);if(!m||![m.from,m.to].includes(u.id))throw Object.assign(Error('Không có quyền xóa tin nhắn.'),{code:403});db.messages=db.messages.filter(x=>x.id!==id);audit(db,'chat-delete',u,id)});
+ return out(res,200,{ok:true});
+}
+if(op==='chat-reports'&&req.method==='GET'){
+ ensure(u,['admin']);return out(res,200,{reports:(db.reports||[]).filter(x=>Date.now()-Date.parse(x.at)<90*86400000).slice(-100).map(x=>({id:x.id,messageId:x.messageId,reporter:x.reporter,reason:x.reason,at:x.at,status:x.status}))});
+}
+if(op==='chat-report-resolve'&&req.method==='POST'){
+ ensure(u,['admin']);const id=norm(body.id);await change(db=>{const r=(db.reports||[]).find(x=>x.id===id);if(!r)throw Object.assign(Error('Không tìm thấy báo cáo.'),{code:404});r.status='resolved';r.resolvedAt=new Date().toISOString();audit(db,'chat-report-resolve',u,id)});return out(res,200,{ok:true});
+}
+if(op==='chat-purge-legacy'&&req.method==='POST'){
+ ensure(u,['admin']);if(body.confirm!=='XOA_TIN_CU')throw Object.assign(Error('Cần xác nhận xóa tin cũ.'),{code:400});
+ const count=await change(db=>{const n=(db.messages||[]).filter(m=>!m.ciphertext).length;db.messages=(db.messages||[]).filter(m=>m.ciphertext);audit(db,'chat-legacy-purge',u,String(n));return n;});return out(res,200,{deleted:count});
+}
+if(op==='chat-report'&&req.method==='POST'){
+ await limit(req,'chat-report:'+u.id,3);const id=norm(body.id),reason=norm(body.reason);
+ if(!['Quấy rối','Bắt nạt','Nội dung không phù hợp','Khác'].includes(reason))throw Object.assign(Error('Lý do báo cáo không hợp lệ.'),{code:400});
+ await change(db=>{const m=(db.messages||[]).find(x=>x.id===id);if(!m||![m.from,m.to].includes(u.id))throw Object.assign(Error('Không có quyền báo cáo.'),{code:403});db.reports=(db.reports||[]).filter(x=>Date.now()-Date.parse(x.at)<90*86400000);db.reports.push({id:rand(),messageId:id,reporter:u.id,reason,at:new Date().toISOString(),status:'pending'});audit(db,'chat-report',u,id)});
+ return out(res,200,{ok:true,note:'Đã ghi nhận báo cáo. Hãy gặp giáo viên phụ trách để trao đổi nội dung nếu cần. Máy chủ không tự đọc được tin nhắn đã mã hóa.'});
 }
 if(op==='chat-read'&&req.method==='POST'){
  const peerId=norm(body.peerId);
@@ -89,6 +125,6 @@ if(op==='survey'){ensure(u,['student']);await limit(req,'survey:'+u.id,5);if(bod
 if(op==='admin-user'){ensure(u,['admin']);if(body.change==='resetPin'&&/^[0-9]{4}$/.test(String(body.pin||'')))body.pinHash=await hash(body.pin);const id=norm(body.id),action=norm(body.change);if(!['eligible','active','resetPin'].includes(action))throw Object.assign(Error('Yêu cầu không hợp lệ.'),{code:400});await change(db=>{const x=db.users.find(v=>v.id===id&&v.role!=='admin');if(!x)throw Object.assign(Error('Không tìm thấy tài khoản.'),{code:404});if(action==='eligible')x.eligible=!!body.value;if(action==='active'){x.active=!!body.value;x.sessionVersion++}if(action==='resetPin'){if(!/^[0-9]{4}$/.test(String(body.pin||'')))throw Object.assign(Error('PIN phải gồm 4 số.'),{code:400});x.pinHash=body.pinHash}audit(db,'admin-'+action,u,id)});return out(res,200,{ok:true})}
 if(op==='admin-category'){ensure(u,['admin']);const id=norm(body.id),name=norm(body.name),value=Number(body.value),quota=Number(body.quota);if(name.length<3||name.length>65||!Number.isInteger(value)||value<0||value>1000000||!Number.isInteger(quota)||quota<1||quota>10000)throw Object.assign(Error('Thông tin danh mục không hợp lệ.'),{code:400});await change(db=>{let c=db.categories.find(x=>x.id===id);if(c){c.name=name;c.value=value;c.quota=quota;c.active=body.active!==false}else{c={id:rand(),name,value,quota,active:true};db.categories.push(c)}audit(db,'category-update',u,c.id)});return out(res,200,{ok:true})}
 if(op==='export'&&req.method==='GET'){ensure(u,['admin']);const name=new URL(req.url,'https://local').searchParams.get('type')||'metrics';let rows;if(name==='transactions'){rows=[['ma_goi','danh_muc','trang_thai','ngay_gieo','ngay_nhan','ngay_doi'],...db.packages.map(p=>[p.id,db.categories.find(c=>c.id===p.categoryId)?.name||'',p.status,p.createdAt||'',p.claimedAt||'',p.redeemedAt||''])]}else if(name==='survey'){const pairs=new Map();for(const s of db.surveys){const key=digest(s.userId).slice(0,14);pairs.set(key,{...(pairs.get(key)||{id:key}),[s.phase+'_stigma']:s.stigma,[s.phase+'_esteem']:s.esteem,[s.phase+'_kindness']:s.kindness})}rows=[['ma_an_danh','truoc_mac_cam','sau_mac_cam','truoc_tu_trong','sau_tu_trong','truoc_nhan_ai','sau_nhan_ai'],...[...pairs.values()].map(x=>[x.id,x.pre_stigma||'',x.post_stigma||'',x.pre_esteem||'',x.post_esteem||'',x.pre_kindness||'',x.post_kindness||''])]}else{const f=fairness(db);rows=[['chi_so','gia_tri'],['so_goi_gieo',db.packages.length],['so_goi_nhan',db.packages.filter(x=>x.claimedBy).length],['so_goi_doi',db.packages.filter(x=>x.status==='redeemed').length],['jain',f.jain??''],['gini',f.gini??''],['ty_le_bao_phu',f.coverage]]}const csv='\ufeff'+rows.map(row=>row.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition',`attachment; filename="${name==='survey'?'khao_sat':name==='transactions'?'giao_dich':'thong_ke'}.csv"`);return res.status(200).send(csv)}
-return out(res,404,{error:'Không tìm thấy chức năng.'});}
+return out(res,404,{error:'Chức năng không được hỗ trợ trong API đang chạy: '+(op||'(trống)')+'. Hãy cập nhật cả thư mục api và public lên GitHub rồi triển khai lại.',version:APP_VERSION});}
 module.exports=async(req,res)=>{try{await route(req,res)}catch(e){const code=e.code||500;if(code===500)console.error('SeedWallet error:',e.message);return out(res,code,{error:code===500?'Hệ thống đang gặp sự cố.':e.message})}};
 module.exports._test={fairness,initial,verify,hash};

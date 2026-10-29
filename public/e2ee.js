@@ -1,0 +1,14 @@
+// Mã hóa đầu cuối Web Crypto. Khóa riêng không xuất ra khỏi IndexedDB của trình duyệt.
+const E2EE=(()=>{
+ const bytes=n=>crypto.getRandomValues(new Uint8Array(n));
+ const enc=new TextEncoder(),dec=new TextDecoder();
+ const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+ const un64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
+ function db(){return new Promise((ok,no)=>{const r=indexedDB.open('vhm-e2ee-keys',1);r.onupgradeneeded=()=>r.result.createObjectStore('keys');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
+ async function store(method,k,val){const d=await db();return new Promise((ok,no)=>{const tx=d.transaction('keys',method==='get'?'readonly':'readwrite');const q=method==='get'?tx.objectStore('keys').get(k):tx.objectStore('keys').put(val,k);q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error);tx.oncomplete=()=>d.close()})}
+ async function ready(userId,api){let privateKey=await store('get',userId);let registered=await api('chat-key&peer='+encodeURIComponent(userId));if(!privateKey){if(registered.key)throw Error('Thiết bị này không có khóa riêng. Hãy dùng thiết bị đã thiết lập chat hoặc liên hệ giáo viên; không thể tự lấy lại lịch sử tin nhắn.');const kp=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},false,['deriveBits']);const pub=await crypto.subtle.exportKey('jwk',kp.publicKey);await api('chat-key',{key:{kty:'EC',crv:'P-256',x:pub.x,y:pub.y}});privateKey=kp.privateKey;await store('put',userId,privateKey);}else if(!registered.key)throw Error('Không tìm thấy khóa công khai của tài khoản. Hãy liên hệ giáo viên.');return privateKey}
+ async function keyFor(privateKey,peerId,api,salt){const r=await api('chat-key&peer='+encodeURIComponent(peerId));if(!r.key)throw Error('Người nhận chưa thiết lập khóa chat.');const pub=await crypto.subtle.importKey('jwk',r.key,{name:'ECDH',namedCurve:'P-256'},false,[]);const shared=await crypto.subtle.deriveBits({name:'ECDH',public:pub},privateKey,256);const root=await crypto.subtle.importKey('raw',shared,'HKDF',false,['deriveKey']);return crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt,info:enc.encode('ViHatMam-E2EE-v1')},root,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+ async function encrypt(text,priv,peer,api){const salt=bytes(16),iv=bytes(12),key=await keyFor(priv,peer,api,salt);const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,enc.encode(text));return {ciphertext:b64(ct),iv:b64(iv),salt:b64(salt)}}
+ async function decrypt(msg,priv,peer,api){const key=await keyFor(priv,peer,api,un64(msg.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:un64(msg.iv)},key,un64(msg.ciphertext));return dec.decode(pt)}
+ return {ready,encrypt,decrypt};
+})();
