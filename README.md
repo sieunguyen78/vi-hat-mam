@@ -1,58 +1,80 @@
-# 🌱 Ví Hạt Mầm – SEED WALLET 2.5
+# 🌱 Ví Hạt Mầm 4.0 – Trường THCS Hoàng Diệu, Đà Nẵng
 
-Website chia sẻ học đường ẩn danh hai chiều (DAPS), **giao diện hoàn toàn bằng tiếng Việt**. Đây là bộ nguồn **Vercel không dùng Next.js, không cần SQL**. Cấu trúc chỉ có `public/` (giao diện), `api/index.js` (máy chủ), các tệp cấu hình và test.
+**Bản thử nghiệm nhiều thiết bị** dựa theo 2 ảnh giao diện học sinh và giáo viên. Giao diện hoàn toàn tiếng Việt, responsive, HTML/CSS/JS thuần, Vercel Functions và Upstash Redis REST. Không cần Next.js, PostgreSQL hoặc build frontend.
 
-## Chức năng chính
+## Chức năng
 
-- Học sinh tự đăng ký với mã học sinh, tên, lớp, mật khẩu >= 10 ký tự và PIN 4 chữ số dùng riêng khi nhận.
-- Quản trị viên đăng nhập bằng thông tin thiết lập trong Environment Variables, duyệt quyền nhận hỗ trợ, khóa/mở tài khoản, giao quyền điểm đổi quà.
-- Gieo mầm theo danh mục, nhập lời nhắn; hệ thống ghi **cam kết** hỗ trợ, chưa xử lý tiền thật.
-- Nhận mầm sau khi được xác nhận quyền; thuật toán ưu tiên lượt nhận thấp nhất trong danh mục (fair-share theo số lượt, không chấm điểm nghèo khó).
-- QR do máy chủ phát hành, token ngẫu nhiên, lưu HMAC SHA-256 để xác minh và bản mã AES-256-GCM để người nhận xem lại. Có hạn 7 ngày và chỉ được đổi một lần bằng cập nhật có điều kiện.
-- Quyền điểm đổi quà có thể nhập mã từ ứng dụng quét QR; không xem danh tính người nhận trong màn hình đổi quà.
-- Báo cáo Jain/Gini/bao phủ, biểu đồ Chart.js, xuất CSV; khảo sát trước–sau 3 câu **minh họa**, lưu cặp theo mã giả danh trong CSV.
-- Mã nguồn không có dữ liệu người dùng mẫu thực tế.
+**Học sinh:** Đăng ký bằng mã HS, tên, lớp, mật khẩu và PIN 4 số; Gieo mầm (4 danh mục, lời nhắn); Nhận mầm sau khi giáo viên duyệt và xác nhận PIN; QR đổi quà một lần; Ví của tôi; Khảo sát trước/sau tự nguyện.
 
-## Triển khai trên Vercel (không cần máy chủ riêng)
+**Giáo viên:** Tổng quan (số liệu thật); xét duyệt quyền nhận, khóa/mở tài khoản; quản lý danh mục, hạn mức; nhận mã QR và xác nhận đổi; biểu đồ, Jain/Gini, khảo sát và xuất CSV; nhật ký hoạt động.
 
-1. Giải nén ZIP. Đưa **các tệp bên trong thư mục này** lên một repository GitHub mới, để thư mục `public` và `api` nằm ngay thư mục gốc repository.
-2. Mở [vercel.com/new](https://vercel.com/new), đăng nhập GitHub, chọn repository rồi `Import`. `Framework Preset`: **Other**; `Root Directory`: `./`; **không đặt Build Command**.
-3. Từ **Vercel Marketplace**, thêm database **Upstash Redis** cho project (có thể chịu phí tùy gói/sử dụng). Sau khi kết nối, kiểm tra `KV_REST_API_URL`/`KV_REST_API_TOKEN` hoặc `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`. Nếu được cấp tên biến khác, đặt thêm các biến đúng tên trong project.
-4. Trong `Project Settings > Environment Variables`, thêm:
+**LƯU Ý:** Ảnh tham khảo chỉ dùng định hướng UI. Các số liệu trong giao diện được tính từ kho dữ liệu thật. Không cấy số liệu minh họa 128, 97, 92%, 36 hoặc kết quả tâm lý giả định.
 
-   - `SESSION_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự (có thể dùng `openssl rand -hex 32`). Giữ bí mật, không đưa lên GitHub.
-   - `ADMIN_USERNAME`: ví dụ `quantri`.
-   - `ADMIN_PASSWORD`: mật khẩu quản trị mạnh, tối thiểu 12 ký tự. Không dùng lại mật khẩu ở dịch vụ khác.
-   - Redis REST URL và token như bước 3, nếu tích hợp chưa tự thêm.
+## 1. Đưa lên GitHub
 
-5. **Redeploy** sau khi khai báo biến môi trường. Vào `https://<ten-du-an>.vercel.app/api/index?action=health`: nếu kết nối tốt, nhận `{"ok":true,"storage":"connected"}`.
-6. Vào trang chính để đăng nhập quản trị, tạo tài khoản học sinh mẫu, xét duyệt, gieo, nhận và đổi quà. Lưu ý tài khoản quản trị chỉ được khởi tạo từ **biến môi trường trên máy chủ**, không có mật khẩu mặc định trong giao diện.
+Giải nén ZIP; mở https://github.com/new, tạo repository `vi-hat-mam` (có thể chọn Private). Tải **toàn bộ nội dung bên trong thư mục** lên repository sao cho thư mục `api/`, `public/` và `vercel.json` nằm ở gốc. Không đưa `.env`, mật khẩu, token lên GitHub.
 
-## Luồng thử nghiệm hai thiết bị
+## 2. Đưa lên Vercel
 
-1. Trên thiết bị A, học sinh 1 đăng ký -> giáo viên duyệt học sinh nhận trên trang Quản trị.
-2. Trên thiết bị B, học sinh 2 đăng ký -> gieo gói bữa sáng.
-3. Trên A, học sinh 1 đăng nhập -> Nhận mầm -> nhập PIN -> hiển thị mã QR.
-4. Tạo tài khoản điểm đổi quà bằng cách quản trị viên chuyển vai trò học sinh thử nghiệm sang `Điểm đổi quà`. Trên thiết bị C, đăng nhập vai trò này -> dán nội dung QR -> xác nhận.
-5. Thử xác nhận cùng một mã lần nữa: máy chủ phải từ chối.
-6. Quản trị viên mở Nghiên cứu -> tải CSV.
+1. https://vercel.com/new → Import Git Repository → chọn `vi-hat-mam`.
+2. Framework Preset: **Other**. Root Directory: `./`. Không cần Build Command.
+3. Vào Marketplace → Upstash Redis (https://vercel.com/marketplace), cài và kết nối dự án. Trong Upstash, tạo Redis Database và chọn vùng gần Việt Nam nếu khả dụng.
+4. Vercel → Project → Settings → Environment Variables, đặt **5 biến** (tên phân biệt hoa/thường):
 
-## Chạy cục bộ
+| Key | Value |
+|---|---|
+| `KV_REST_API_URL` | Giá trị REST URL từ Upstash (hoặc dùng `UPSTASH_REDIS_REST_URL`) |
+| `KV_REST_API_TOKEN` | REST Token từ Upstash (hoặc dùng `UPSTASH_REDIS_REST_TOKEN`) |
+| `SESSION_SECRET` | Chuỗi **ngẫu nhiên tối thiểu 32 ký tự**, giữ bí mật |
+| `ADMIN_USERNAME` | `quantri` (hoặc tên giáo viên tự chọn) |
+| `ADMIN_PASSWORD` | Mật khẩu mạnh **tối thiểu 12 ký tự** |
 
-Cần Node.js >=20 và Vercel CLI. Trong thư mục nguồn: `npm install -g vercel`, sau đó `vercel link`, `vercel env pull .env.local`, `vercel dev`. Mở URL local do CLI báo. Nếu chỉ mở tệp HTML trực tiếp, API sẽ không hoạt động.
+Có thể chọn Production và Preview nếu cần. Bật Sensitive cho các bí mật nếu Vercel hỗ trợ. **Không đặt thêm dấu nháy** trong giá trị. Tạo bí mật trên máy: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
 
-## Mô hình dữ liệu và giới hạn quan trọng
+5. Deploy/Redeploy sau khi thêm biến. Vào `https://<ten-du-an>.vercel.app/api?action=health` (đây là mẫu địa chỉ) để xem `{"ok":true,"storage":"connected"}` khi Redis hoạt động.
+6. Đăng nhập giáo viên với đúng `ADMIN_USERNAME` và `ADMIN_PASSWORD`. Tạo 2 tài khoản học sinh giả lập, giáo viên duyệt 1 tài khoản, thử gieo/nhận/đổi QR. Dùng trình duyệt khác để xác minh dữ liệu đồng bộ.
 
-Bản này dùng **một bản ghi JSON** trên Upstash Redis, cập nhật qua CAS (Lua compare-and-set) để tránh ghi đè khi nhiều người nhận/đổi cùng lúc. Phù hợp trình diễn hoặc thử nghiệm có kiểm soát, **không phù hợp triển khai quy mô lớn**, và không thay thế cơ sở dữ liệu giao dịch chuẩn với sao lưu/khôi phục. Cần kiểm tra giới hạn bộ nhớ, quota và dung lượng request. Một số tiện ích phụ thuộc CDN (Lucide, QRCode, Chart.js, Google Fonts); website cần Internet để hiển thị trọn vẹn.
+## 3. Cấu trúc
 
-PIN 4 số không được dùng để đăng nhập, chỉ xác nhận việc nhận; mật khẩu đăng nhập >=10 ký tự. Xác thực dùng cookie HttpOnly, Secure, SameSite=Lax có chữ ký HMAC và kiểm tra quyền tại server. Có giới hạn tần suất cơ bản qua Redis nhưng **chưa có WAF/chống bot toàn diện, email xác minh, SSO học đường, phân tách nhiệm vụ phê duyệt, nhật ký bất biến, kiểm toán an ninh, khôi phục tài khoản và cơ chế hết hạn giữ dữ liệu**.
+```
+public/index.html     Giao diện chính
+public/theme.css      Thiết kế pastel theo hai ảnh tham khảo
+public/app.js         Reactivity, màn hình học sinh/giáo viên
+api/index.js          Xử lý đăng nhập, phân quyền, dữ liệu, QR, khảo sát
+vercel.json           Vercel Functions, routing, security headers
+tests/                Kiểm thử logic
+.env.example          Tên biến môi trường, không có bí mật thật
+```
 
-**Dữ liệu học sinh là dữ liệu cá nhân, có thể là dữ liệu nhạy cảm khi nói đến hoàn cảnh cần hỗ trợ.** Không nhập tên/sự kiện thực vào môi trường demo công khai. Trước khi áp dụng thực tế, nhà trường phải rà soát cơ sở pháp lý, thông báo và xin chấp thuận cần thiết, phân quyền cán bộ được phép truy cập, đánh giá tác động, quy định lưu/xóa dữ liệu, bảo mật thiết bị và sao lưu, cùng quy trình hỗ trợ ngoài đời. Giáo viên quản trị có quyền thấy danh tính tài khoản; ẩn danh là **giữa học sinh với học sinh**, không phải ẩn danh tuyệt đối với cơ quan quản lý hệ thống.
+## 4. Giới hạn cần hiểu trước khi áp dụng trong trường
 
-**Khảo sát**: Ba câu 1–5 chỉ là mẫu thiết kế; chưa được thẩm định tâm lý, chưa thể dùng để khẳng định giảm mặc cảm/tăng lòng tự trọng. Phải có đề cương thực nghiệm và sự đồng thuận hợp lệ với trẻ vị thành niên trước khi thu thập dữ liệu thật. CSV dùng mã giả danh nên vẫn có nguy cơ liên kết lại; quản lý tệp xuất có kiểm soát.
+- **Đây là bản pilot, chưa phải sản phẩm production đã kiểm thử an ninh.** Tối đa vài lớp và dữ liệu giả; không đưa hồ sơ học sinh thật lên khi chưa có phê duyệt, đồng thuận và đánh giá bảo vệ dữ liệu.
+- Redis lưu trạng thái dưới một khóa JSON với thao tác CAS nguyên tử. Phù hợp demo; khi mở rộng cần mô hình dữ liệu chuẩn hóa, backup/khôi phục, quản trị khóa và kiểm thử tải.
+- Giá trị gói là **tham khảo**, giao diện không thu hay chuyển tiền thật. Trường phải có quy trình tiếp nhận/đối soát hỗ trợ.
+- PIN 4 số là lớp xác nhận bổ sung, **không đủ** làm thông tin đăng nhập duy nhất; API có giới hạn tần suất nhưng cần thêm bảo vệ theo tài khoản, kiểm thử bảo mật, giám sát/alert và lưu trữ theo chính sách.
+- DAPS là ẩn danh giữa người gieo và người nhận, không ẩn danh tuyệt đối trước giáo viên có quyền quản trị. Giáo viên có khả năng xem dữ liệu nhạy cảm theo vai trò; cần đào tạo và cam kết bảo mật.
+- Khảo sát chỉ gồm **3 câu mẫu chưa thẩm định** và không tạo được kết luận về hiệu quả can thiệp hay chỉ số SUS; xuất CSV để kiểm tra độc lập. Không yêu cầu học sinh trả lời như điều kiện nhận hỗ trợ.
+- `SESSION_SECRET` phải cố định cho các phiên triển khai cùng kho Redis; thay khóa sẽ khiến phiên và QR đã cấp trước đó không thể giải mã. Phải lập kế hoạch luân chuyển khóa khi nâng cấp.
 
-**Tiền và hàng**: Không có ví tiền thật hoặc cổng thanh toán; nghiệp vụ là cam kết hỗ trợ và xác nhận phát quà. Nhà trường cần quản lý hiện vật, tài chính và kiểm kê riêng.
+## 5. Kiểm thử
 
-## Kiểm thử
+Có Node.js 20+: chạy `npm test` (kiểm thử đơn vị). Khuyến nghị kiểm thử bổ sung: xác thực sai, quyền truy cập trái vai trò, hai học sinh nhận đồng thời, đổi lại mã QR, mã hết hạn, API mất Redis, trình duyệt di động, giới hạn chi phí và khả năng khôi phục dữ liệu. Kiểm thử tự động chưa thay thế thử nghiệm thực tế trên Vercel.
 
-`npm test` chạy các bài kiểm thử công thức công bằng và mật khẩu. Kết quả chưa thay thế kiểm thử API tích hợp có Redis, kiểm thử đồng thời nhiều yêu cầu, bảo mật ứng dụng và kiểm thử thực địa.
+## Phiên bản 4.0 – những cập nhật
+
+- Nhận diện **Trường THCS Hoàng Diệu, Đà Nẵng** trên trang chủ, trang đăng nhập, màn hình học sinh/giáo viên và chân trang.
+- Khảo sát bổ sung xác nhận tham gia **tự nguyện**, được kiểm tra ở phía máy chủ; không ảnh hưởng quyền nhận hỗ trợ.
+- Giới hạn thao tác xác nhận PIN theo tài khoản; hỗ trợ kiểm tra kết nối Redis qua API sức khỏe.
+- Thay namespace Redis thành `seedwallet:hoangdieu:v4:state` để tránh va chạm dữ liệu phiên bản cũ. **Không tự động chuyển dữ liệu cũ.**
+- Bổ sung trạng thái focus dễ nhìn, bố cục mobile và tùy chọn giảm chuyển động.
+
+### Kiểm tra nhanh trước khi trình diễn
+
+1. Mở `/api?action=health`, xác nhận `ok: true` (đường dẫn API được định tuyến theo cấu hình Vercel).
+2. Đăng nhập giáo viên bằng biến `ADMIN_USERNAME` và `ADMIN_PASSWORD`.
+3. Đăng ký hai tài khoản học sinh **giả lập**, xét duyệt một tài khoản, gieo mầm ở tài khoản còn lại.
+4. Nhận gói bằng PIN, mở QR trong Ví cá nhân và dùng tài khoản giáo viên xác nhận đổi.
+5. Quét lại mã QR cũ để kiểm tra bị từ chối; thử đăng nhập trên trình duyệt khác để kiểm tra đồng bộ dữ liệu.
+6. Thử xuất CSV, kiểm tra chỉ chứa dữ liệu phù hợp; thử khảo sát trước–sau khi đã tự nguyện đồng ý.
+
+**Quan trọng:** Không nên sử dụng dữ liệu học sinh thật trước khi nhà trường phê duyệt, thực hiện đánh giá bảo vệ dữ liệu và kiểm thử bảo mật/tải. Ứng dụng là **pilot có backend**, chưa phải hệ thống production được kiểm toán. Việc tạo gói hỗ trợ chỉ ghi cam kết, **không xử lý thanh toán**.
