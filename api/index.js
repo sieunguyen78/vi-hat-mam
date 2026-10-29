@@ -1,11 +1,11 @@
 const crypto = require('node:crypto');
 const QRCode = require('./vendor/QRCode');
 const QRErrorCorrectLevel = require('./vendor/QRCode/QRErrorCorrectLevel');
-const KEY='seedwallet:hoangdieu:v4:state'; // giữ dữ liệu của phiên bản 4.0
+const KEY='seedwallet:nguyentrai:v6:state'; // cô lập dữ liệu trường Nguyễn Trãi
 const CATEGORIES=[{id:'breakfast',name:'Bữa sáng căn tin',value:25000,quota:100,active:true},{id:'stationery',name:'Dụng cụ học tập',value:45000,quota:70,active:true},{id:'bus',name:'Vé xe buýt',value:20000,quota:50,active:true},{id:'books',name:'Sách tham khảo',value:60000,quota:40,active:true}];
-const initial=()=>({version:1,users:[],categories:CATEGORIES,packages:[],surveys:[],audit:[]});
+const initial=()=>({version:1,users:[],categories:CATEGORIES,packages:[],surveys:[],audit:[],messages:[]});
 const rand=()=>crypto.randomBytes(18).toString('base64url');
-const SCHOOL='Trường THCS Hoàng Diệu, Đà Nẵng';
+const SCHOOL='Trường THCS Nguyễn Trãi, TP. Đà Nẵng';
 const encrypt=(txt)=>{const iv=crypto.randomBytes(12),key=crypto.createHash('sha256').update(process.env.SESSION_SECRET).digest(),c=crypto.createCipheriv('aes-256-gcm',key,iv);const data=Buffer.concat([c.update(txt,'utf8'),c.final()]);return [iv.toString('hex'),c.getAuthTag().toString('hex'),data.toString('hex')].join('.')};
 const decrypt=(txt)=>{try{const [a,b,d]=txt.split('.');const key=crypto.createHash('sha256').update(process.env.SESSION_SECRET).digest(),c=crypto.createDecipheriv('aes-256-gcm',key,Buffer.from(a,'hex'));c.setAuthTag(Buffer.from(b,'hex'));return Buffer.concat([c.update(Buffer.from(d,'hex')),c.final()]).toString('utf8')}catch{return null}};
 const digest=(secret)=>crypto.createHmac('sha256',process.env.SESSION_SECRET||'').update(secret).digest('hex');
@@ -33,7 +33,55 @@ if(op==='login'){await limit(req,'login',10);const id=norm(body.studentId).toLow
 if(op==='register'){await limit(req,'register',5);const studentId=norm(body.studentId).toUpperCase(),name=norm(body.name),klass=norm(body.klass),password=String(body.password||''),pin=String(body.pin||'');if(!/^[A-Z0-9_-]{4,24}$/.test(studentId)||name.length<2||name.length>70||klass.length<2||klass.length>20||password.length<10||!/^[0-9]{4}$/.test(pin))return out(res,400,{error:'Kiểm tra mã học sinh, họ tên, lớp, mật khẩu (tối thiểu 10 ký tự) và PIN 4 chữ số.'});const h=await hash(password),ph=await hash(pin);const u=await change(db=>{if(db.users.some(x=>x.studentId===studentId))throw Object.assign(Error('Mã học sinh đã tồn tại.'),{code:409});const x={id:rand(),studentId,name,klass,passwordHash:h,pinHash:ph,role:'student',eligible:false,active:true,sessionVersion:0,createdAt:new Date().toISOString()};db.users.push(x);audit(db,'register',x,'');return x});setSession(res,u);return out(res,200,{user:safeUser(u)})}
 if(op==='logout'){cookie(res,'',true);return out(res,200,{ok:true})}
 const {db}=await read(),u=auth(req,db);ensure(u);
-if(op==='dashboard'&&req.method==='GET'){const mine=db.packages.filter(p=>p.donorId===u.id||p.claimedBy===u.id).map(p=>({...publicPack(p),code:p.claimedBy===u.id&&p.status==='claimed'&&p.tokenEncrypted?decrypt(p.tokenEncrypted):null,asDonor:p.donorId===u.id,asRecipient:p.claimedBy===u.id}));const available=db.packages.filter(p=>p.status==='available'&&p.donorId!==u.id).map(publicPack);const base={user:safeUser(u),categories:db.categories.filter(c=>c.active),mine,available,stats:{planted:db.packages.length,claimed:db.packages.filter(p=>p.claimedBy).length,redeemed:db.packages.filter(p=>p.status==='redeemed').length,fairness:fairness(db)}};if(u.role==='admin'){base.users=db.users.map(safeUser);base.categories=db.categories;base.packages=db.packages.map(p=>({...publicPack(p),donorId:p.donorId,claimedBy:p.claimedBy}));base.surveys=db.surveys.map(s=>({...s,studentId:undefined}));base.audit=db.audit.slice(0,100);base.reporting={byCategory:db.categories.map(c=>({id:c.id,name:c.name,planted:db.packages.filter(p=>p.categoryId===c.id).length,claimed:db.packages.filter(p=>p.categoryId===c.id&&p.claimedBy).length,redeemed:db.packages.filter(p=>p.categoryId===c.id&&p.status==='redeemed').length})),byMonth:[...new Set(db.packages.map(p=>(p.createdAt||'').slice(0,7)))].sort().map(month=>({month,planted:db.packages.filter(p=>(p.createdAt||'').startsWith(month)).length,claimed:db.packages.filter(p=>(p.claimedAt||'').startsWith(month)).length,redeemed:db.packages.filter(p=>(p.redeemedAt||'').startsWith(month)).length})),surveySummary:['pre','post'].map(phase=>{const a=db.surveys.filter(s=>s.phase===phase);const avg=k=>a.length?Math.round(100*a.reduce((n,s)=>n+s[k],0)/a.length)/100:null;return {phase,count:a.length,stigma:avg('stigma'),esteem:avg('esteem'),kindness:avg('kindness')}})}}return out(res,200,{...base,school:SCHOOL})}
+if(op==='dashboard'&&req.method==='GET'){const mine=db.packages.filter(p=>p.donorId===u.id||p.claimedBy===u.id).map(p=>({...publicPack(p),code:p.claimedBy===u.id&&p.status==='claimed'&&p.tokenEncrypted?decrypt(p.tokenEncrypted):null,asDonor:p.donorId===u.id,asRecipient:p.claimedBy===u.id}));const available=db.packages.filter(p=>p.status==='available'&&p.donorId!==u.id).map(publicPack);const base={user:safeUser(u),teachers:db.users.filter(x=>x.role==='admin'&&x.active!==false).map(x=>({id:x.id,name:x.name})),categories:db.categories.filter(c=>c.active),mine,available,stats:{planted:db.packages.length,claimed:db.packages.filter(p=>p.claimedBy).length,redeemed:db.packages.filter(p=>p.status==='redeemed').length,fairness:fairness(db)}};if(u.role==='admin'){base.users=db.users.map(safeUser);base.categories=db.categories;base.packages=db.packages.map(p=>({...publicPack(p),donorId:p.donorId,claimedBy:p.claimedBy}));base.surveys=db.surveys.map(s=>({...s,studentId:undefined}));base.audit=db.audit.slice(0,100);base.reporting={byCategory:db.categories.map(c=>({id:c.id,name:c.name,planted:db.packages.filter(p=>p.categoryId===c.id).length,claimed:db.packages.filter(p=>p.categoryId===c.id&&p.claimedBy).length,redeemed:db.packages.filter(p=>p.categoryId===c.id&&p.status==='redeemed').length})),byMonth:[...new Set(db.packages.map(p=>(p.createdAt||'').slice(0,7)))].sort().map(month=>({month,planted:db.packages.filter(p=>(p.createdAt||'').startsWith(month)).length,claimed:db.packages.filter(p=>(p.claimedAt||'').startsWith(month)).length,redeemed:db.packages.filter(p=>(p.redeemedAt||'').startsWith(month)).length})),surveySummary:['pre','post'].map(phase=>{const a=db.surveys.filter(s=>s.phase===phase);const avg=k=>a.length?Math.round(100*a.reduce((n,s)=>n+s[k],0)/a.length)/100:null;return {phase,count:a.length,stigma:avg('stigma'),esteem:avg('esteem'),kindness:avg('kindness')}})}}return out(res,200,{...base,school:SCHOOL})}
+
+// Hồ sơ cá nhân: chỉ chủ tài khoản cập nhật; đổi mật khẩu/PIN cần mật khẩu hiện tại.
+if(op==='profile'&&req.method==='POST'){
+ await limit(req,'profile:'+u.id,8);
+ const name=norm(body.name),klass=norm(body.klass),current=String(body.currentPassword||''),newPass=String(body.newPassword||''),newPin=String(body.newPin||'');
+ if(name.length<2||name.length>70||/\d{5,}/.test(name)||(u.role==='student'&&(klass.length<2||klass.length>20)))throw Object.assign(Error('Họ tên hoặc lớp không hợp lệ.'),{code:400});
+ if(newPass&&newPass.length<12)throw Object.assign(Error('Mật khẩu mới cần ít nhất 12 ký tự.'),{code:400});
+ if(newPin&&!/^[0-9]{4}$/.test(newPin))throw Object.assign(Error('PIN mới phải gồm đúng 4 chữ số.'),{code:400});
+ if((newPass||newPin)&&!current)throw Object.assign(Error('Nhập mật khẩu hiện tại để đổi thông tin bảo mật.'),{code:400});
+ if(newPass||newPin){if(u.role==='admin'){
+  // Tài khoản giáo viên bootstrap từ biến môi trường không được đổi mật khẩu qua hồ sơ.
+  throw Object.assign(Error('Mật khẩu giáo viên được quản lý trong biến ADMIN_PASSWORD của Vercel. Hãy đổi tại Vercel rồi triển khai lại.'),{code:400});
+ }if(!verify(current,u.passwordHash))throw Object.assign(Error('Mật khẩu hiện tại không đúng.'),{code:401});}
+ const ph=newPass?await hash(newPass):null,pinh=newPin?await hash(newPin):null;
+ await change(db=>{const self=db.users.find(x=>x.id===u.id&&x.active!==false);if(!self)throw Object.assign(Error('Tài khoản không hợp lệ.'),{code:403});self.name=name;if(self.role==='student')self.klass=klass;if(ph){self.passwordHash=ph;self.sessionVersion=(self.sessionVersion||0)+1}if(pinh)self.pinHash=pinh;audit(db,'profile',self,'')});
+ if(ph){cookie(res,'',true);return out(res,200,{ok:true,relogin:true})}return out(res,200,{ok:true});
+}
+// Tin nhắn riêng học sinh ↔ giáo viên. Không hỗ trợ học sinh nhắn cho học sinh.
+if(op==='chat-list'&&req.method==='GET'){
+ const messages=Array.isArray(db.messages)?db.messages:[];
+ const students=db.users.filter(x=>x.role==='student'&&x.active!==false);
+ const teachers=db.users.filter(x=>x.role==='admin'&&x.active!==false);
+ const peers=u.role==='admin'?students:teachers;
+ const list=peers.map(peer=>{const thread=messages.filter(m=>(m.from===u.id&&m.to===peer.id)||(m.from===peer.id&&m.to===u.id));const last=thread.at(-1);return {id:peer.id,name:peer.name,klass:u.role==='admin'?peer.klass:'',studentId:u.role==='admin'?peer.studentId:'',lastAt:last?.at||null,preview:last?.text?.slice(0,70)||'',unread:thread.filter(m=>m.to===u.id&&!m.readAt).length}}).sort((a,b)=>(b.lastAt||'').localeCompare(a.lastAt||''));
+ return out(res,200,{conversations:list});
+}
+if(op==='chat-thread'&&req.method==='GET'){
+ const peerId=norm(new URL(req.url,'https://local').searchParams.get('peer'));
+ const peer=db.users.find(x=>x.id===peerId&&x.active!==false);
+ if(!peer||peer.id===u.id||peer.role===u.role)throw Object.assign(Error('Không có quyền xem cuộc trò chuyện này.'),{code:403});
+ const thread=(db.messages||[]).filter(m=>(m.from===u.id&&m.to===peerId)||(m.from===peerId&&m.to===u.id));
+ return out(res,200,{peer:{id:peer.id,name:peer.name},messages:thread.slice(-100).map(m=>({id:m.id,fromMe:m.from===u.id,text:m.text,at:m.at,read:!!m.readAt}))});
+}
+if(op==='chat-send'&&req.method==='POST'){
+ await limit(req,'chat:'+u.id,12);const peerId=norm(body.peerId),text=norm(body.text);
+ if(!text||text.length>800)throw Object.assign(Error('Tin nhắn phải có từ 1 đến 800 ký tự.'),{code:400});
+ const result=await change(db=>{const self=db.users.find(x=>x.id===u.id&&x.active!==false),peer=db.users.find(x=>x.id===peerId&&x.active!==false);if(!self||!peer||self.id===peer.id||self.role===peer.role)throw Object.assign(Error('Chỉ học sinh và giáo viên mới có thể nhắn tin riêng với nhau.'),{code:403});
+ db.messages=db.messages||[];const msg={id:rand(),from:self.id,to:peer.id,text,at:new Date().toISOString()};db.messages.push(msg);
+ // Giữ giới hạn dung lượng Redis demo; không ghi nội dung tin nhắn vào audit.
+ if(db.messages.length>1200)db.messages=db.messages.slice(-1200);
+ audit(db,'chat',self,'');return {id:msg.id,at:msg.at}});
+ return out(res,200,{ok:true,message:result});
+}
+if(op==='chat-read'&&req.method==='POST'){
+ const peerId=norm(body.peerId);
+ await change(db=>{const peer=db.users.find(x=>x.id===peerId&&x.active!==false);if(!peer||peer.role===u.role)throw Object.assign(Error('Không có quyền xem cuộc trò chuyện này.'),{code:403});for(const m of (db.messages||[]))if(m.from===peerId&&m.to===u.id&&!m.readAt)m.readAt=new Date().toISOString();});
+ return out(res,200,{ok:true});
+}
 if(op==='donate'){ensure(u,['student']);await limit(req,'donate',12);const categoryId=norm(body.categoryId),message=norm(body.message).slice(0,180);const p=await change(db=>{const c=db.categories.find(x=>x.id===categoryId&&x.active);if(!c)throw Object.assign(Error('Danh mục không hợp lệ.'),{code:400});const active=db.packages.filter(x=>x.categoryId===c.id&&x.status!=='cancelled').length;if(active>=c.quota)throw Object.assign(Error('Danh mục đã đạt hạn mức.'),{code:409});const p={id:rand(),donorId:u.id,categoryId,message,status:'available',createdAt:new Date().toISOString(),claimedBy:null,token:null};db.packages.push(p);audit(db,'donate',u,p.id);return publicPack(p)});return out(res,200,{package:p})}
 if(op==='claim'){ensure(u,['student']);await limit(req,'claim:'+u.id,8);const pin=String(body.pin||''),categoryId=norm(body.categoryId);if(!/^[0-9]{4}$/.test(pin)||!verify(pin,u.pinHash))throw Object.assign(Error('Mã PIN không đúng.'),{code:401});const token=crypto.randomBytes(24).toString('base64url');const p=await change(db=>{const self=db.users.find(x=>x.id===u.id);if(!self?.eligible)throw Object.assign(Error('Tài khoản chưa được giáo viên xác nhận quyền nhận.'),{code:403});const other=db.users.filter(x=>x.role==='student'&&x.eligible&&x.active!==false);const ownN=db.packages.filter(x=>x.claimedBy===u.id&&x.categoryId===categoryId).length;const min=other.length?Math.min(...other.map(x=>db.packages.filter(p=>p.claimedBy===x.id&&p.categoryId===categoryId).length)):ownN;if(ownN>min)throw Object.assign(Error('Ưu tiên bạn chưa nhận gói thuộc danh mục này để phân phối công bằng.'),{code:409});const x=db.packages.find(p=>p.status==='available'&&p.categoryId===categoryId&&p.donorId!==u.id);if(!x)throw Object.assign(Error('Chưa có gói phù hợp.'),{code:409});x.claimedBy=u.id;x.status='claimed';x.tokenHash=digest(token);x.tokenEncrypted=encrypt(token);/* Encrypted at rest, only recipient can retrieve. */x.expiresAt=Date.now()+7*86400000;x.claimedAt=new Date().toISOString();audit(db,'claim',u,x.id);return publicPack(x)});return out(res,200,{package:p,token})}
 if(op==='redeem'){ensure(u,['admin']);await limit(req,'redeem',30);const token=norm(body.token);if(!/^[a-zA-Z0-9_-]{20,80}$/.test(token))throw Object.assign(Error('Mã đổi quà không hợp lệ.'),{code:400});const result=await change(db=>{const p=db.packages.find(x=>x.tokenHash===digest(token));if(!p||p.status!=='claimed'||Date.now()>p.expiresAt)throw Object.assign(Error('Mã không tồn tại, đã hết hạn hoặc đã được dùng.'),{code:409});p.status='redeemed';p.redeemedAt=new Date().toISOString();delete p.tokenEncrypted;audit(db,'redeem',u,p.id);return {id:p.id,category:db.categories.find(c=>c.id===p.categoryId)?.name||''}});return out(res,200,{redeemed:result})}

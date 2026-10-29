@@ -7,3 +7,28 @@ global.fetch=async(_url,options)=>{const [cmd,...args]=JSON.parse(options.body);
 async function call(action,body,cookie=''){let status=200,headers={},payload;const req={url:'/api/index?action='+action,method:body===undefined?'GET':'POST',body,headers:{host:'localhost',cookie},socket:{remoteAddress:'127.0.0.1'}};const res={setHeader:(k,v)=>headers[k]=v,status(c){status=c;return this},json(v){payload=v;return this},send(v){payload=v;return this}};await handler(req,res);return {status,payload,cookie:headers['Set-Cookie']?.split(';')[0]||cookie}};
 test('Luồng học sinh – giáo viên – QR và báo cáo toàn phần',async()=>{store.clear();let a=await call('register',{studentId:'HS0001',name:'Bạn gieo',klass:'8/1',password:'abcde1234567',pin:'1234'});assert.equal(a.status,200);const donor=a.cookie;let b=await call('register',{studentId:'HS0002',name:'Bạn nhận',klass:'8/2',password:'abcde1234567',pin:'5678'});assert.equal(b.status,200);const recipient=b.cookie;let d=await call('donate',{categoryId:'breakfast',message:'Chúc bạn ngày tốt lành'},donor);assert.equal(d.status,200);let fail=await call('claim',{categoryId:'breakfast',pin:'5678'},recipient);assert.equal(fail.status,403);let admin=await call('login',{studentId:'quantri',password:'ExampleStrongAdminPass1!'});assert.equal(admin.status,200);const teacher=admin.cookie;const dash=await call('dashboard',undefined,teacher);const studentId=dash.payload.users.find(u=>u.studentId==='HS0002').id;assert.equal((await call('admin-user',{id:studentId,change:'eligible',value:true},teacher)).status,200);assert.equal((await call('claim',{categoryId:'breakfast',pin:'9999'},recipient)).status,401);let c=await call('claim',{categoryId:'breakfast',pin:'5678'},recipient);assert.equal(c.status,200);assert.match(c.payload.token,/^[\w-]{32}$/);let qr=await call('qr-image',{token:c.payload.token},recipient);assert.equal(qr.status,200);assert.match(qr.payload.svg,/<svg /);assert.match(qr.payload.svg,/<rect /);assert.equal((await call('qr-image',{token:c.payload.token},donor)).status,403);assert.equal((await call('redeem',{token:c.payload.token},recipient)).status,403);assert.equal((await call('redeem',{token:c.payload.token},teacher)).status,200);assert.equal((await call('redeem',{token:c.payload.token},teacher)).status,409);assert.equal((await call('qr-image',{token:c.payload.token},recipient)).status,403);assert.equal((await call('survey',{phase:'pre',stigma:4,esteem:2,kindness:3,consent:true},recipient)).status,200);assert.equal((await call('survey',{phase:'post',stigma:2,esteem:4,kindness:4,consent:true},recipient)).status,200);const report=await call('dashboard',undefined,teacher);assert.equal(report.payload.stats.redeemed,1);assert.equal(report.payload.reporting.byCategory.find(x=>x.id==='breakfast').redeemed,1);assert.equal(report.payload.reporting.surveySummary.find(x=>x.phase==='pre').stigma,4);assert.equal((await call('export',undefined,teacher)).status,200);assert.equal((await call('export',undefined,recipient)).status,403);assert.equal((await call('export&type=transactions',undefined,teacher)).status,200);
 });
+
+test('Hồ sơ và nhắn tin riêng: kiểm tra quyền, cập nhật, đăng nhập lại',async()=>{
+ store.clear();const a=await call('register',{studentId:'NT0011',name:'Học sinh An',klass:'8/1',password:'AnPassword12345',pin:'1111'});
+ const b=await call('register',{studentId:'NT0022',name:'Học sinh Bình',klass:'8/2',password:'BinhPassword12345',pin:'2222'});
+ const teacher=await call('login',{studentId:'quantri',password:'ExampleStrongAdminPass1!'});
+ const d=await call('dashboard',undefined,teacher.cookie);const tid=d.payload.user.id;
+ assert.equal((await call('chat-send',{peerId:b.payload.user.id,text:'Không hợp lệ'},a.cookie)).status,403);
+ assert.equal((await call('chat-send',{peerId:tid,text:'Chào thầy cô, em xin hỗ trợ.'},a.cookie)).status,200);
+ assert.equal((await call('chat-thread&peer='+tid,undefined,a.cookie)).status,200);
+ assert.equal((await call('chat-thread&peer='+a.payload.user.id,undefined,b.cookie)).status,403);
+ assert.equal((await call('chat-thread&peer='+a.payload.user.id,undefined,teacher.cookie)).payload.messages.length,1);
+ const list=await call('chat-list',undefined,teacher.cookie);assert.equal(list.payload.conversations.find(x=>x.id===a.payload.user.id).unread,1);
+ assert.equal((await call('chat-read',{peerId:a.payload.user.id},teacher.cookie)).status,200);
+ assert.equal((await call('chat-send',{peerId:a.payload.user.id,text:'Cô đã nhận được tin.'},teacher.cookie)).status,200);
+ assert.equal((await call('chat-send',{peerId:tid,text:'  '},a.cookie)).status,400);
+ assert.equal((await call('profile',{name:'An Nguyễn',klass:'8/3'},a.cookie)).status,200);
+ const dash=await call('dashboard',undefined,a.cookie);assert.equal(dash.payload.user.name,'An Nguyễn');assert.equal(dash.payload.user.klass,'8/3');
+ assert.equal((await call('profile',{name:'An Nguyễn',klass:'8/3',newPin:'3333',currentPassword:'sai'},a.cookie)).status,401);
+ assert.equal((await call('profile',{name:'An Nguyễn',klass:'8/3',newPin:'3333',currentPassword:'AnPassword12345'},a.cookie)).status,200);
+ const change=await call('profile',{name:'An Nguyễn',klass:'8/3',newPassword:'NewPassword123456',currentPassword:'AnPassword12345'},a.cookie);
+ assert.equal(change.status,200);assert.equal(change.payload.relogin,true);
+ assert.equal((await call('dashboard',undefined,a.cookie)).status,401);
+ assert.equal((await call('login',{studentId:'NT0011',password:'NewPassword123456'})).status,200);
+ assert.equal((await call('profile',{name:'Cô Giáo'},teacher.cookie)).status,200);
+});

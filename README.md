@@ -1,61 +1,52 @@
-# VÍ HẠT MẦM 5.0 – Trường THCS Hoàng Diệu, Đà Nẵng
+# VÍ HẠT MẦM 6.0 – TRƯỜNG THCS NGUYỄN TRÃI, TP. ĐÀ NẴNG
 
-Ứng dụng tiếng Việt gồm **hai vai trò Học sinh và Giáo viên**, chạy trên Vercel (HTML/CSS/JS + Serverless Functions), dữ liệu dùng chung qua Upstash Redis REST. Đây là **phiên bản thử nghiệm/pilot**, chưa được chứng nhận để xử lý dữ liệu trẻ em trong triển khai chính thức.
+Phiên bản thử nghiệm chạy trên Vercel Functions + Upstash Redis, giao diện HTML/CSS/JavaScript tiếng Việt. Chỉ có **hai vai trò**: học sinh và giáo viên. Đây chưa phải nền tảng đã được chứng nhận để lưu dữ liệu trẻ em ngoài môi trường thử nghiệm có kiểm soát.
 
-## Các sửa lỗi quan trọng ở 5.0
+## Chức năng
 
-- **Nhận mầm:** học sinh đăng ký, giáo viên duyệt quyền nhận, học sinh chọn gói có sẵn và nhập PIN 4 số; API xác nhận quyền, danh mục và quy tắc phân phối. Khi không đủ điều kiện, hiển thị thông báo cụ thể.
-- **Mã QR:** tạo QR **tại máy chủ**, mã hóa dưới dạng hình SVG và trả về cho học sinh sở hữu mã qua API `qr-image`; không lệ thuộc CDN thư viện QR. QR chứa token ngẫu nhiên, không chứa tên học sinh. Học sinh có thể mở lại QR trong Ví của tôi; giáo viên dùng nội dung quét để đổi quà đúng một lần.
-- **Giáo viên:** thẻ KPI và giao diện thống kê, 4 biểu đồ (gói hỗ trợ; danh mục; xu hướng theo tháng; khảo sát trước–sau), dữ liệu thật từ Redis, xuất 3 CSV (tổng hợp, giao dịch không định danh, khảo sát mã giả danh).
-- **Bảo toàn dữ liệu:** dùng tiếp namespace Redis `seedwallet:hoangdieu:v4:state`, để tài khoản/gói của bản 4.0 không mất khi nâng cấp. **Sao lưu Redis trước khi nâng cấp.**
-- **Kiểm thử:** `npm test` gồm 5 bài, trong đó 1 kiểm thử tích hợp giả lập Redis kiểm tra đăng ký → gieo → chặn nhận trước duyệt → duyệt → nhận → tạo QR → chặn dùng QR sai vai trò → đổi 1 lần → chặn đổi lại → khảo sát → báo cáo.
+**Học sinh:** đăng ký, đăng nhập; gieo/nhận mầm; mở mã QR trong ví; lịch sử; khảo sát tự nguyện; hồ sơ (đổi họ tên, lớp, mật khẩu, PIN); nhắn tin riêng với giáo viên.
 
-## Cài đặt Vercel
+**Giáo viên:** tổng quan, duyệt quyền nhận, quản lý danh mục, đổi mã QR một lần, biểu đồ và báo cáo CSV; sửa tên hồ sơ; nhắn tin riêng với từng học sinh. Mật khẩu giáo viên đổi tại biến `ADMIN_PASSWORD` trong Vercel, không đổi trong giao diện.
 
-1. Giải nén ZIP, đưa **nội dung** thư mục dự án lên GitHub (thư mục `public/`, `api/`, `tests/`, cùng `package.json`, `vercel.json` ở thư mục gốc).
-2. Vercel → New Project → Import repository → Framework Preset **Other**, Root Directory `./`, để build mặc định.
-3. Trên Upstash tạo Redis Database; lấy REST URL và REST TOKEN. Thêm biến môi trường trên Vercel (Production, và Preview nếu dùng):
+**Tin nhắn:** lưu trên Redis, kiểm tra hai phía tham gia ở API; học sinh không thể đọc/nhắn tin học sinh khác. Có giới hạn 800 ký tự/tin, 12 yêu cầu gửi/phút/IP và ID tài khoản, danh sách cập nhật khoảng 10 giây/lần. **Không mã hóa đầu cuối**: người vận hành máy chủ/database được cấp quyền kỹ thuật có thể truy cập dữ liệu. Không gửi thông tin nhạy cảm, dùng kênh trực tiếp khi khẩn cấp.
+
+## Cách triển khai
+
+1. Giải nén ZIP, đẩy nội dung gốc lên GitHub (`public`, `api`, `tests`, `package.json`, `vercel.json`).
+2. Vercel → New Project → import repository, Framework Preset: **Other**, Root Directory: `./`.
+3. Kết nối Upstash Redis và khai báo các biến môi trường (không đưa bí mật vào GitHub):
 
 ```env
 KV_REST_API_URL=https://...upstash.io
-KV_REST_API_TOKEN=...
-SESSION_SECRET=<khoa_ngau_nhien_it_nhat_32_ky_tu>
+KV_REST_API_TOKEN=<token_thuc_te>
+SESSION_SECRET=<chuoi_ngau_nhien_it_nhat_32_ky_tu>
 ADMIN_USERNAME=quantri
-ADMIN_PASSWORD=<mat_khau_manh_it_nhat_12_ky_tu>
+ADMIN_PASSWORD=<mat_khau_giao_vien_manh>
 ```
 
-   Có thể dùng tên `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` thay hai biến KV; không cần cả hai cặp. Tuyệt đối không đưa token/mật khẩu lên GitHub.
-4. Deploy/Redeploy. Kiểm tra `/api/index?action=health` trả về `ok:true`, `storage:"connected"` khi cấu hình tốt.
-5. Dùng tài khoản `ADMIN_USERNAME` và `ADMIN_PASSWORD` đã khai báo để vào giao diện giáo viên. Đây là tài khoản giáo viên duy nhất do biến môi trường quản lý; không có mật khẩu mặc định trong mã nguồn.
+Có thể thay hai biến `KV_...` bằng `UPSTASH_REDIS_REST_URL` và `UPSTASH_REDIS_REST_TOKEN`. Chọn Production (và Preview nếu dùng), Save, rồi Redeploy.
+4. Kiểm tra `https://TEN-DU-AN.vercel.app/api/index?action=health` trả `ok:true` và `storage:"connected"`.
+5. Đăng nhập giáo viên với `ADMIN_USERNAME`, `ADMIN_PASSWORD`; tạo tài khoản học sinh thử nghiệm rồi kiểm tra theo kịch bản dưới đây.
 
-## Kịch bản kiểm tra thực tế
+## Kiểm thử thực tế
 
-1. Đăng ký hai học sinh thử nghiệm với mã khác nhau, mật khẩu tối thiểu 10 ký tự, PIN 4 số.
-2. Học sinh A gieo một gói (ví dụ Bữa sáng căn tin).
-3. Học sinh B thử nhận trước khi được duyệt → bị từ chối; giáo viên duyệt tại **Xét duyệt**.
-4. Học sinh B chọn **Nhận mầm**, nhập PIN (thử sai một lần trước), xác nhận nhận → xuất hiện QR.
-5. Mở **Ví của tôi**, xác minh QR có thể hiện lại. Giáo viên vào **Đổi mã QR**, quét bằng ứng dụng camera hoặc sao chép chuỗi ký tự, dán và xác nhận. Thử lại cùng mã → phải bị từ chối.
-6. Giáo viên xem **Thống kê & Báo cáo**: biểu đồ và các số KPI thay đổi; tải ba CSV.
-7. Kiểm tra bằng hai thiết bị, ẩn danh trình duyệt, sau khi tải lại trang, và đăng xuất/đăng nhập.
-8. Kiểm tra Vercel → Logs để phát hiện lỗi API nếu có.
+- Học sinh A đăng ký, gieo mầm; học sinh B đăng ký, chưa thể nhận trước khi giáo viên duyệt.
+- Giáo viên duyệt B; B nhận bằng PIN, thấy QR; giáo viên đổi QR; quét lại QR bị chặn.
+- Học sinh A gửi tin cho giáo viên; giáo viên thấy tin và trả lời; học sinh B **không** được xem cuộc trò chuyện A ↔ giáo viên.
+- A cập nhật tên/lớp; đổi PIN bằng mật khẩu cũ; đổi mật khẩu buộc đăng nhập lại. Giáo viên đổi tên hiển thị trong hồ sơ.
+- Kiểm tra tin nhắn/biểu đồ trên hai trình duyệt khác nhau, tải lại trang và đăng nhập lại.
+- Xác thực chặn truy cập trái quyền; thử tải 2 người cùng nhận một gói; kiểm tra báo cáo CSV và Logs của Vercel.
 
-## Giới hạn & kiểm soát cần có trước sử dụng thật
+Chạy kiểm thử tự động: `node --test tests/*.test.js` với Node.js 20+. Các bài kiểm thử sử dụng Redis giả lập trong bộ nhớ, không kết nối Upstash thật.
 
-- Redis hiện lưu toàn bộ dữ liệu trong một khóa JSON, cập nhật CAS nguyên tử. Phù hợp thử nghiệm nhỏ, **không phù hợp mở rộng lớn** hay bảo đảm an toàn dữ liệu trẻ em theo tiêu chuẩn vận hành chính thức. Cần chuyển sang mô hình dữ liệu phân tách, sao lưu, nhật ký bất biến, giám sát và kiểm toán.
-- PIN 4 chữ số có entropy thấp; đã có giới hạn số lần gọi API theo cửa sổ thời gian, nhưng để dùng thật cần chống dò đoán theo từng tài khoản, quy trình cấp lại PIN xác thực danh tính và khóa tạm thời.
-- Bộ khảo sát trong ứng dụng là biểu mẫu thí điểm, chưa phải thang tâm lý chuẩn hóa; biểu đồ trước/sau mô tả dữ liệu quan sát, **không** chứng minh tác động.
-- Không sử dụng thông tin học sinh thật nếu chưa có văn bản chấp thuận của nhà trường, sự đồng thuận phù hợp, chính sách lưu/xóa dữ liệu và đánh giá an toàn độc lập.
-- Giao diện sử dụng Chart.js và Lucide qua CDN; mất Internet với CDN có thể khiến biểu đồ hoặc biểu tượng không tải được, nhưng QR không phụ thuộc CDN.
+## Tách dữ liệu trường cũ và trường mới
 
-## Phát triển cục bộ & kiểm thử
+Phiên bản này sử dụng Redis key **`seedwallet:nguyentrai:v6:state`** nên **không trộn dữ liệu của Trường THCS Hoàng Diệu**. Tài khoản/giao dịch cũ không tự chuyển sang trường mới. Nếu cần di chuyển dữ liệu, phải có sự cho phép và quy trình chuyển dữ liệu an toàn; không nên sao chép tài khoản học sinh giữa hai trường một cách tự động.
 
-```bash
-node --version  # Node.js 20 trở lên
-npm test
-npm install -g vercel
-vercel dev
-```
+## Hạn chế trước triển khai chính thức
 
-`vercel dev` cần tài khoản và cấu hình biến môi trường. Không cần cài thêm NPM dependency để tạo QR: mã tạo QR được đóng gói trong `api/vendor/QRCode/` (mã nguồn Apache-2.0 của dự án qrcode-terminal, kèm LICENSE).
-
-Nếu dùng cùng Redis của phiên bản 4.0, hãy sao lưu `seedwallet:hoangdieu:v4:state` trước khi triển khai và **giữ nguyên SESSION_SECRET** để giải mã mã QR còn hiệu lực. Đổi SESSION_SECRET sẽ làm các phiên và mã đang giữ không thể khôi phục.
+- Toàn bộ dữ liệu nghiệp vụ và tin nhắn hiện nằm trong một JSON Redis, cập nhật CAS: chỉ phù hợp thử nghiệm quy mô nhỏ. Chưa có backup tự động, quản lý vòng đời dữ liệu, xóa hội thoại, kiểm thử tải lớn hay kiểm toán độc lập.
+- Chat lưu tối đa 1.200 tin gần nhất toàn hệ thống, mỗi lần hiển thị tối đa 100 tin cuối. Đây không phải giải pháp lưu trữ hồ sơ lâu dài, không bảo đảm lưu đủ bằng chứng xử lý vụ việc.
+- Phụ huynh/nhà trường cần thông báo và đồng thuận thích hợp, chỉ định giáo viên phụ trách, quy trình xử lý báo cáo nhạy cảm và bảo mật dữ liệu trẻ em. Không sử dụng chat để xử lý nguy hiểm khẩn cấp.
+- PIN chỉ có bốn chữ số, cần thêm cơ chế khóa theo tài khoản, kiểm thử bảo mật ứng dụng, phân quyền kỹ thuật, xác minh nguồn hỗ trợ trước khi giao nhận, giám sát và sao lưu.
+- Dữ liệu khảo sát mô phỏng, không được coi là bằng chứng thực nghiệm KHKT. Không đưa dữ liệu học sinh thật vào cho đến khi có phê duyệt và đánh giá bảo mật.
